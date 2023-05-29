@@ -1,0 +1,74 @@
+[tool.poetry]
+name = "latch-asgi"
+version = "0.1.0"
+description = "ASGI python server"
+authors = ["Max Smolin <max@latch.bio>"]
+license = "CC0 1.0"
+readme = "README.md"
+packages = [{include = "latch_asgi"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+hypercorn = { extras = ["uvloop"], version = "^0.14.3" }
+latch-data-validation = "^0.1.3"
+latch-o11y = "^0.1.4"
+latch-config = "^0.1.6"
+PyJWT = { extras = ["crypto"], version = "^2.6.0" }
+pysimdjson = "^5.0.2"
+orjson = "^3.8.5"
+opentelemetry-sdk = "^1.15.0"
+opentelemetry-api = "^1.15.0"
+opentelemetry-instrumentation-asgi = "^0.36b0"
+
+[tool.poetry.dev-dependencies]
+black = "^22.12.0"
+isort = "^5.11.4"
+rich = "^13.2.0"
+ruff = "^0.0.227"
+
+[tool.black]
+preview = true
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+
+[tool.ruff]
+pydocstyle = { convention = "google" }
+extend-select = ["W", "D", "U", "N", "C", "B", "A", "T", "Q", "M"]
+extend-ignore = [
+  "A002",
+  "A003",
+
+  "E402",
+  "E501",
+  "E741",
+
+  "C408",
+  "C901",
+
+  "T201",
+
+  "D415",
+
+  "D100",
+  "D101",
+  "D102",
+  "D103",
+  "D104",
+  "D105",
+  "D107",
+]
+
+[tool.pyright]
+reportUnknownArgumentType = "none"
+reportUnknownLambdaType = "none"
+reportUnknownMemberType = "none"
+reportUnknownParameterType = "none"
+reportUnknownVariableType = "none"
+
+reportUnusedImport = "warning"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
