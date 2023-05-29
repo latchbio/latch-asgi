@@ -71,7 +71,7 @@ class LatchASGIServer:
             if isinstance(message, LifespanStartupEvent):
                 with tracer.start_as_current_span("startup"):
                     try:
-                        await log.info("Connecting to Vacuole")
+                        await log.info("Executing startup tasks")
                         # todo(maximsmol): debug clock skew on connection reset
                         await asyncio.gather(*self.startup_tasks)
 
