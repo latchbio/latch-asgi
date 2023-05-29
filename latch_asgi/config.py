@@ -8,4 +8,4 @@ class AuthConfig:
     self_signed_jwk: str
     allow_spoofing: bool = False
 
-config = read_config(AuthConfig, "auth")
+config = read_config(AuthConfig, "auth_")
