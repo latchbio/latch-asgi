@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "latch-asgi"
-version = "0.1.0"
+version = "0.1.1"
 description = "ASGI python server"
 authors = ["Max Smolin <max@latch.bio>"]
 license = "CC0 1.0"
