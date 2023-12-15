@@ -2,16 +2,16 @@ import asyncio
 import dataclasses
 import traceback
 from http import HTTPStatus
+from typing import Awaitable, get_args
 
 import opentelemetry.context as context
 from hypercorn.typing import ASGIReceiveCallable, ASGISendCallable, Scope
-from typing import Awaitable
 from latch_data_validation.data_validation import untraced_validate, validate
 from latch_o11y.o11y import log
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.trace import get_current_span, get_tracer
 
-from .datadog_propagator import DDTraceContextTextMapPropagator
+from latch_asgi.context.websocket import WebsocketContext, WebsocketRoute
 
 from .asgi_iface import (
     HTTPDisconnectEvent,
@@ -30,16 +30,30 @@ from .asgi_iface import (
     LifespanStartupCompleteEvent,
     LifespanStartupEvent,
     LifespanStartupFailedEvent,
+    WebsocketReceiveCallable,
+    WebsocketReceiveEventT,
+    WebsocketScope,
+    WebsocketSendCallable,
+    WebsocketSendEventT,
+    WebsocketStatus,
     type_str,
 )
-from .context import Context, Route
+from .context.http import HTTPContext, HTTPRoute
+from .datadog_propagator import DDTraceContextTextMapPropagator
 from .framework import (
     HTTPErrorResponse,
     HTTPInternalServerError,
+    WebsocketErrorResponse,
+    WebsocketInternalServerError,
+    accept_websocket_connection,
+    close_websocket_connection,
     current_http_request_span,
+    current_websocket_request_span,
     http_request_span_key,
     send_auto,
-    send_data,
+    send_http_data,
+    send_websocket_data,
+    websocket_request_span_key,
 )
 
 tracer = get_tracer(__name__)
@@ -47,18 +61,30 @@ tracer = get_tracer(__name__)
 
 # todo(maximsmol): ASGI instrumentation should trace lifespan
 
+
 class LatchASGIServer:
-    routes: dict[str, Route]
+    http_routes: dict[str, HTTPRoute]
+    websocket_routes: dict[str, WebsocketRoute]
     startup_tasks: list[Awaitable] = []
     shutdown_tasks: list[Awaitable] = []
 
-    def __init__(self, routes: dict[str, Route], startup_tasks: list[Awaitable] = [], shutdown_tasks: list[Awaitable] = []):
-        self.routes = routes
+    def __init__(
+        self,
+        http_routes: dict[str, HTTPRoute],
+        websocket_routes: dict[str, WebsocketRoute],
+        startup_tasks: list[Awaitable] = [],
+        shutdown_tasks: list[Awaitable] = [],
+    ):
+        self.http_routes = http_routes
+        self.websocket_routes = websocket_routes
         self.startup_tasks = startup_tasks
         self.shutdown_tasks = shutdown_tasks
 
     async def scope_lifespan(
-        self, scope: LifespanScope, receive: LifespanReceiveCallable, send: LifespanSendCallable
+        self,
+        scope: LifespanScope,
+        receive: LifespanReceiveCallable,
+        send: LifespanSendCallable,
     ):
         await log.info(
             f"Waiting for lifespan events (ASGI v{scope.asgi.version} @ spec"
@@ -77,7 +103,9 @@ class LatchASGIServer:
 
                         with tracer.start_as_current_span("send completion event"):
                             await send(
-                                LifespanStartupCompleteEvent("lifespan.startup.complete")
+                                LifespanStartupCompleteEvent(
+                                    "lifespan.startup.complete"
+                                )
                             )
                     except Exception as e:
                         with tracer.start_as_current_span("send failure event"):
@@ -95,7 +123,9 @@ class LatchASGIServer:
 
                         with tracer.start_as_current_span("send completion event"):
                             await send(
-                                LifespanShutdownCompleteEvent("lifespan.shutdown.complete")
+                                LifespanShutdownCompleteEvent(
+                                    "lifespan.shutdown.complete"
+                                )
                             )
                     except Exception as e:
                         with tracer.start_as_current_span("send failure event"):
@@ -109,6 +139,54 @@ class LatchASGIServer:
 
                     break
 
+    async def scope_websocket(
+        self,
+        scope: WebsocketScope,
+        receive: WebsocketReceiveCallable,
+        send: WebsocketSendCallable,
+    ):
+        ctx_reset_token: object | None = None
+        try:
+            new_ctx = context.set_value(websocket_request_span_key, get_current_span())
+            ctx_reset_token = context.attach(new_ctx)
+
+            current_websocket_request_span().set_attribute("resource.name", scope.path)
+
+            handler = self.websocket_routes.get(scope.path)
+            if handler is None:
+                msg = f"Path {scope.path} not found"
+
+                await log.info(msg)
+                await send_websocket_data(send, msg)
+                return
+
+            await log.info(f"Websocket {scope.path}")
+
+            try:
+                try:
+                    ctx = WebsocketContext(scope, receive, send)
+
+                    await accept_websocket_connection(ctx.send, ctx.receive)
+                    await handler(ctx)
+
+                except WebsocketErrorResponse as e:
+                    raise e
+                except Exception as e:
+                    raise WebsocketInternalServerError(str(e)) from e
+            except WebsocketErrorResponse as e:
+                await close_websocket_connection(
+                    send, status=WebsocketStatus.INTERNAL_ERROR, data=e.data
+                )
+
+                if e.status == HTTPStatus.INTERNAL_SERVER_ERROR:
+                    traceback.print_exc()
+            else:
+                await close_websocket_connection(
+                    send, status=WebsocketStatus.NORMAL, data=""
+                )
+        finally:
+            if ctx_reset_token is not None:
+                context.detach(ctx_reset_token)
 
     async def scope_http(
         self, scope: HTTPScope, receive: HTTPReceiveCallable, send: HTTPSendCallable
@@ -122,7 +200,7 @@ class LatchASGIServer:
             await log.info(f"{scope.method} {scope.path}")
 
             with tracer.start_as_current_span("find route handler"):
-                route = self.routes.get(scope.path)
+                route = self.http_routes.get(scope.path)
 
             if not isinstance(route, tuple):
                 methods = ["POST"]
@@ -138,7 +216,7 @@ class LatchASGIServer:
                 else:
                     methods_str = ", and ".join([", ".join(methods[:-1]), methods[-1]])
 
-                await send_data(
+                await send_http_data(
                     send,
                     HTTPStatus.METHOD_NOT_ALLOWED,
                     f"Only {methods_str} requests are supported",
@@ -148,12 +226,12 @@ class LatchASGIServer:
             if handler is None:
                 # todo(maximsmol): better error message
                 await log.info("Not found")
-                await send_data(send, HTTPStatus.NOT_FOUND, "Not found")
+                await send_http_data(send, HTTPStatus.NOT_FOUND, "Not found")
                 return
 
             try:
                 try:
-                    ctx = Context(scope, receive, send)
+                    ctx = HTTPContext(scope, receive, send)
                     res = await handler(ctx)
 
                     if res is not None:
@@ -175,8 +253,9 @@ class LatchASGIServer:
             if ctx_reset_token is not None:
                 context.detach(ctx_reset_token)
 
-
-    async def raw_app(self, scope: Scope, receive: ASGIReceiveCallable, send: ASGISendCallable):
+    async def raw_app(
+        self, scope: Scope, receive: ASGIReceiveCallable, send: ASGISendCallable
+    ):
         try:
             if scope["type"] == "lifespan":
 
@@ -189,7 +268,9 @@ class LatchASGIServer:
                     if x["type"] == type_str(LifespanShutdownEvent):
                         return untraced_validate(x, LifespanShutdownEvent)
 
-                    raise RuntimeError(f"unknown lifespan event type: {repr(x['type'])}")
+                    raise RuntimeError(
+                        f"unknown lifespan event type: {repr(x['type'])}"
+                    )
 
                 async def ls_send(e: LifespanSendEvent):
                     data = dataclasses.asdict(e)
@@ -197,6 +278,29 @@ class LatchASGIServer:
 
                 return await self.scope_lifespan(
                     untraced_validate(scope, LifespanScope), ls_receive, ls_send
+                )
+
+            if scope["type"] == "websocket":
+
+                async def ws_receive():
+                    x = await receive()
+
+                    for e in get_args(WebsocketReceiveEventT):
+                        if x["type"] != type_str(e):
+                            continue
+
+                        return validate(x, e)
+
+                    raise RuntimeError(
+                        f"unknown websocket event type: {repr(x['type'])}"
+                    )
+
+                async def ws_send(e: WebsocketSendEventT):
+                    data = dataclasses.asdict(e)
+                    await send(data)
+
+                return await self.scope_websocket(
+                    validate(scope, WebsocketScope), ws_receive, ws_send
                 )
 
             if scope["type"] == "http":
@@ -216,7 +320,9 @@ class LatchASGIServer:
                     data = dataclasses.asdict(e)
                     await send(data)
 
-                return await self.scope_http(validate(scope, HTTPScope), http_receive, http_send)
+                return await self.scope_http(
+                    validate(scope, HTTPScope), http_receive, http_send
+                )
 
             raise RuntimeError(f"unsupported protocol: {repr(scope['type'])}")
         except Exception as e:

@@ -1,6 +1,8 @@
 import dataclasses
 from dataclasses import dataclass
+from enum import Enum
 from typing import (
+    Any,
     Awaitable,
     Callable,
     Iterable,
@@ -198,3 +200,122 @@ HTTPSendEvent: TypeAlias = (
     | HTTPDisconnectEvent
 )
 HTTPSendCallable: TypeAlias = Callable[[HTTPSendEvent], Awaitable[None]]
+
+
+# >>> Websocket
+@dataclass(frozen=True)
+class WebsocketScope:
+    type: Literal["websocket"]
+    asgi: ASGIVersions
+    http_version: str
+    scheme: str
+    path: str
+    raw_path: bytes
+    query_string: bytes
+    root_path: str
+    headers: Iterable[tuple[bytes, bytes]]
+    client: tuple[str, int] | None
+    server: tuple[str, int | None] | None
+    subprotocols: Iterable[str]
+    extensions: dict[str, object]
+
+    def as_dict(self):
+        return validate(dataclasses.asdict(self), htyping.WebsocketScope)
+
+
+@dataclass(frozen=True)
+class WebsocketConnectEvent:
+    type: Literal["websocket.connect"]
+
+    def as_dict(self):
+        return validate(dataclasses.asdict(self), htyping.WebsocketConnectEvent)
+
+
+@dataclass(frozen=True)
+class WebsocketAcceptEvent:
+    type: Literal["websocket.accept"]
+    subprotocol: str | None
+    headers: Iterable[tuple[bytes, bytes]]
+
+    def as_dict(self):
+        return validate(dataclasses.asdict(self), htyping.WebsocketAcceptEvent)
+
+
+@dataclass(frozen=True)
+class WebsocketReceiveEvent:
+    type: Literal["websocket.receive"]
+    bytes: bytes | None
+    text: str | None
+
+    def as_dict(self):
+        return validate(dataclasses.asdict(self), htyping.WebsocketReceiveEvent)
+
+
+@dataclass(frozen=True)
+class WebsocketSendEvent:
+    type: Literal["websocket.send"]
+    bytes: bytes | None
+    text: str | None
+
+    def as_dict(self):
+        return validate(dataclasses.asdict(self), htyping.WebsocketSendEvent)
+
+
+@dataclass(frozen=True)
+class WebsocketResponseStartEvent:
+    type: Literal["websocket.http.response.start"]
+    status: int
+    headers: Iterable[tuple[bytes, bytes]]
+
+    def as_dict(self):
+        return validate(dataclasses.asdict(self), htyping.WebsocketResponseStartEvent)
+
+
+@dataclass(frozen=True)
+class WebsocketResponseBodyEvent:
+    type: Literal["websocket.http.response.body"]
+    body: bytes
+    more_body: bool
+
+    def as_dict(self):
+        return validate(dataclasses.asdict(self), htyping.WebsocketResponseBodyEvent)
+
+
+@dataclass(frozen=True)
+class WebsocketDisconnectEvent:
+    type: Literal["websocket.disconnect"]
+    code: int
+
+    def as_dict(self):
+        return validate(dataclasses.asdict(self), htyping.WebsocketDisconnectEvent)
+
+
+@dataclass(frozen=True)
+class WebsocketCloseEvent:
+    type: Literal["websocket.close"]
+    code: int
+    reason: str | None
+
+    def as_dict(self):
+        return validate(dataclasses.asdict(self), htyping.WebsocketCloseEvent)
+
+
+WebsocketSendEventT: TypeAlias = (
+    WebsocketAcceptEvent
+    | WebsocketSendEvent
+    | WebsocketResponseBodyEvent
+    | WebsocketResponseStartEvent
+    | WebsocketCloseEvent
+)
+WebsocketSendCallable: TypeAlias = Callable[[WebsocketSendEventT], Awaitable[None]]
+
+
+WebsocketReceiveEventT: TypeAlias = (
+    WebsocketConnectEvent | WebsocketReceiveEvent | WebsocketDisconnectEvent
+)
+WebsocketReceiveCallable: TypeAlias = Callable[[], Awaitable[WebsocketReceiveEventT]]
+
+
+class WebsocketStatus(Enum):
+    NORMAL = 1000
+    INTERNAL_ERROR = 1011

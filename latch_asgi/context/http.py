@@ -8,15 +8,15 @@ from latch_o11y.o11y import (
     trace_app_function,
 )
 
-from .asgi_iface import HTTPReceiveCallable, HTTPScope, HTTPSendCallable
-from .auth import Authorization, get_signer_sub
-from .framework import HTTPMethod, current_http_request_span, receive_class_ext
+from ..asgi_iface import HTTPReceiveCallable, HTTPScope, HTTPSendCallable
+from ..auth import Authorization, get_signer_sub
+from ..framework import HTTPMethod, current_http_request_span, receive_class_ext
 
 T = TypeVar("T")
 
 
 @dataclass
-class Context:
+class HTTPContext:
     scope: HTTPScope
     receive: HTTPReceiveCallable
     send: HTTPSendCallable
@@ -82,9 +82,9 @@ class Context:
         return res
 
 
-HandlerResult: TypeAlias = Any | None
-Handler: TypeAlias = Callable[
-    [Context],
-    Awaitable[HandlerResult],
+HTTPHandlerResult: TypeAlias = Any | None
+HTTPHandler: TypeAlias = Callable[
+    [HTTPContext],
+    Awaitable[HTTPHandlerResult],
 ]
-Route: TypeAlias = Handler | tuple[list[HTTPMethod], Handler]
+HTTPRoute: TypeAlias = HTTPHandler | tuple[list[HTTPMethod], HTTPHandler]
