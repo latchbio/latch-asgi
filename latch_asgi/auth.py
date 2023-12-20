@@ -26,7 +26,8 @@ authentication_header_regex = re.compile(
     ^(
         Bearer \s+ (?P<oauth_token>.*) |
         Latch-Execution-Token \s+ (?P<execution_token>.*) |
-        Latch-SDK-Token \s+ (?P<sdk_token>.*)
+        Latch-SDK-Token \s+ (?P<sdk_token>.*) |
+        Latch-Process-Token \s+ (?P<process_token>.*)
     )$
     """,
     re.IGNORECASE | re.VERBOSE,
@@ -60,6 +61,7 @@ class Authorization:
     oauth_sub: str | None = None
     execution_token: str | None = None
     sdk_token: str | None = None
+    process_token: str | None = None
 
     def unauthorized_if_none(self):
         if self.oauth_sub is not None:
@@ -67,6 +69,8 @@ class Authorization:
         if self.execution_token is not None:
             return
         if self.sdk_token is not None:
+            return
+        if self.process_token is not None:
             return
 
         raise _HTTPUnauthorized(
@@ -105,6 +109,10 @@ def get_signer_sub(auth_header: str) -> Authorization:
         sdk_token = auth_match.group("sdk_token")
         if sdk_token is not None:
             return Authorization(sdk_token=sdk_token)
+
+        process_token = auth_match.group("process_token")
+        if process_token is not None:
+            return Authorization(process_token=process_token)
 
         oauth_token = auth_match.group("oauth_token")
 
