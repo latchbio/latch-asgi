@@ -8,7 +8,12 @@ from latch_o11y.o11y import (
     trace_app_function,
 )
 
-from ..asgi_iface import WebsocketReceiveCallable, WebsocketScope, WebsocketSendCallable
+from ..asgi_iface import (
+    WebsocketReceiveCallable,
+    WebsocketScope,
+    WebsocketSendCallable,
+    WebsocketStatus,
+)
 from ..auth import Authorization, get_signer_sub
 from ..framework import current_websocket_request_span
 
@@ -74,8 +79,9 @@ class WebsocketContext:
         self._db_response_idx += 1
 
 
+WebsocketHandlerResult = str | tuple[WebsocketStatus, str]
 WebsocketHandler: TypeAlias = Callable[
     [WebsocketContext],
-    Awaitable[None],
+    Awaitable[WebsocketHandlerResult],
 ]
 WebsocketRoute: TypeAlias = WebsocketHandler

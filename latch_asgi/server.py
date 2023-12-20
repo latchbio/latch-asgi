@@ -167,7 +167,13 @@ class LatchASGIServer:
                     ctx = WebsocketContext(scope, receive, send)
 
                     await accept_websocket_connection(ctx.send, ctx.receive)
-                    await handler(ctx)
+                    res = await handler(ctx)
+
+                    if isinstance(res, tuple):
+                        status, data = res
+                    else:
+                        status = WebsocketStatus.NORMAL
+                        data = res
 
                 except WebsocketErrorResponse as e:
                     raise e
@@ -181,9 +187,7 @@ class LatchASGIServer:
                 if e.status == HTTPStatus.INTERNAL_SERVER_ERROR:
                     traceback.print_exc()
             else:
-                await close_websocket_connection(
-                    send, status=WebsocketStatus.NORMAL, data=""
-                )
+                await close_websocket_connection(send, status=status, data=data)
         finally:
             if ctx_reset_token is not None:
                 context.detach(ctx_reset_token)
