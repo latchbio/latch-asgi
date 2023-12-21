@@ -181,7 +181,7 @@ class LatchASGIServer:
                     raise WebsocketInternalServerError(str(e)) from e
             except WebsocketErrorResponse as e:
                 await close_websocket_connection(
-                    send, status=WebsocketStatus.INTERNAL_ERROR, data=e.data
+                    send, status=WebsocketStatus.INTERNAL_ERROR, data=str(e.data)
                 )
 
                 if e.status == HTTPStatus.INTERNAL_SERVER_ERROR:
