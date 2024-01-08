@@ -1,8 +1,6 @@
 import dataclasses
 from dataclasses import dataclass
-from enum import Enum
 from typing import (
-    Any,
     Awaitable,
     Callable,
     Iterable,
@@ -316,6 +314,15 @@ WebsocketReceiveEventT: TypeAlias = (
 WebsocketReceiveCallable: TypeAlias = Callable[[], Awaitable[WebsocketReceiveEventT]]
 
 
-class WebsocketStatus(Enum):
-    NORMAL = 1000
-    INTERNAL_ERROR = 1011
+WWWScope: TypeAlias = HTTPScope | WebsocketScope
+Scope: TypeAlias = HTTPScope | WebsocketScope | LifespanScope
+
+WWWSendCallable: TypeAlias = HTTPSendCallable | WebsocketSendCallable
+SendCallable: TypeAlias = (
+    HTTPSendCallable | WebsocketSendCallable | LifespanSendCallable
+)
+
+WWWReceiveCallable: TypeAlias = HTTPReceiveCallable | WebsocketReceiveCallable
+ReceiveCallable: TypeAlias = (
+    HTTPReceiveCallable | WebsocketReceiveCallable | LifespanReceiveCallable
+)

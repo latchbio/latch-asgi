@@ -20,11 +20,11 @@ opentelemetry-sdk = "^1.15.0"
 opentelemetry-api = "^1.15.0"
 opentelemetry-instrumentation-asgi = "^0.36b0"
 
-[tool.poetry.dev-dependencies]
-black = "^22.12.0"
-isort = "^5.11.4"
-rich = "^13.2.0"
-ruff = "^0.0.227"
+[tool.poetry.group.dev.dependencies]
+black = "^23.12.1"
+isort = "^5.13.2"
+rich = "^13.7.0"
+ruff = "^0.1.9"
 
 [tool.black]
 preview = true

@@ -10,7 +10,7 @@ from jwt import PyJWKClient
 from latch_o11y.o11y import app_tracer, trace_app_function
 
 from .config import config
-from .framework import HTTPErrorResponse
+from .framework.http import HTTPErrorResponse
 
 jwk_client = PyJWKClient("https://latchai.us.auth0.com/.well-known/jwks.json")
 debug_authentication_header_regex = re.compile(
@@ -39,9 +39,11 @@ class _HTTPUnauthorized(HTTPErrorResponse):
     def __init__(
         self,
         error_description: str,
-        error: Literal["invalid_request"]
-        | Literal["invalid_token"]
-        | Literal["insufficient_scope"],
+        error: (
+            Literal["invalid_request"]
+            | Literal["invalid_token"]
+            | Literal["insufficient_scope"]
+        ),
     ):
         escaped_description = error_description.replace('"', '\\"')
         super().__init__(
@@ -138,9 +140,7 @@ def get_signer_sub(auth_header: str) -> Authorization:
                 algorithms=["RS256", "HS256"],
                 # fixme(maximsmol): gut this abomination
                 audience=(
-                    config.audience
-                    if jwt_key != config.self_signed_jwk
-                    else None
+                    config.audience if jwt_key != config.self_signed_jwk else None
                 ),
             )
         except jwt.exceptions.InvalidTokenError as e:

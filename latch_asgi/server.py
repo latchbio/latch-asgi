@@ -11,8 +11,6 @@ from latch_o11y.o11y import log
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.trace import get_current_span, get_tracer
 
-from latch_asgi.context.websocket import WebsocketContext, WebsocketRoute
-
 from .asgi_iface import (
     HTTPDisconnectEvent,
     HTTPReceiveCallable,
@@ -35,23 +33,25 @@ from .asgi_iface import (
     WebsocketScope,
     WebsocketSendCallable,
     WebsocketSendEventT,
-    WebsocketStatus,
     type_str,
 )
-from .context.http import HTTPContext, HTTPRoute
+from .context import http, websocket
 from .datadog_propagator import DDTraceContextTextMapPropagator
-from .framework import (
+from .framework.http import (
     HTTPErrorResponse,
     HTTPInternalServerError,
-    WebsocketErrorResponse,
-    WebsocketInternalServerError,
-    accept_websocket_connection,
-    close_websocket_connection,
     current_http_request_span,
-    current_websocket_request_span,
     http_request_span_key,
     send_auto,
     send_http_data,
+)
+from .framework.websocket import (
+    WebsocketErrorResponse,
+    WebsocketInternalServerError,
+    WebsocketStatus,
+    accept_websocket_connection,
+    close_websocket_connection,
+    current_websocket_request_span,
     send_websocket_data,
     websocket_request_span_key,
 )
@@ -63,15 +63,15 @@ tracer = get_tracer(__name__)
 
 
 class LatchASGIServer:
-    http_routes: dict[str, HTTPRoute]
-    websocket_routes: dict[str, WebsocketRoute]
+    http_routes: dict[str, http.Route]
+    websocket_routes: dict[str, websocket.Route]
     startup_tasks: list[Awaitable] = []
     shutdown_tasks: list[Awaitable] = []
 
     def __init__(
         self,
-        http_routes: dict[str, HTTPRoute],
-        websocket_routes: dict[str, WebsocketRoute],
+        http_routes: dict[str, http.Route],
+        websocket_routes: dict[str, websocket.Route],
         startup_tasks: list[Awaitable] = [],
         shutdown_tasks: list[Awaitable] = [],
     ):
@@ -154,17 +154,19 @@ class LatchASGIServer:
 
             handler = self.websocket_routes.get(scope.path)
             if handler is None:
-                msg = f"Path {scope.path} not found"
+                msg = f"Websocket {scope.path} not found"
 
                 await log.info(msg)
-                await send_websocket_data(send, msg)
+                await close_websocket_connection(
+                    send, status=WebsocketStatus.policy_violation, data=msg
+                )
                 return
 
             await log.info(f"Websocket {scope.path}")
 
             try:
                 try:
-                    ctx = WebsocketContext(scope, receive, send)
+                    ctx = websocket.Context(scope, receive, send)
 
                     await accept_websocket_connection(ctx.send, ctx.receive)
                     res = await handler(ctx)
@@ -172,7 +174,7 @@ class LatchASGIServer:
                     if isinstance(res, tuple):
                         status, data = res
                     else:
-                        status = WebsocketStatus.NORMAL
+                        status = WebsocketStatus.normal
                         data = res
 
                 except WebsocketErrorResponse as e:
@@ -181,7 +183,7 @@ class LatchASGIServer:
                     raise WebsocketInternalServerError(str(e)) from e
             except WebsocketErrorResponse as e:
                 await close_websocket_connection(
-                    send, status=WebsocketStatus.INTERNAL_ERROR, data=str(e.data)
+                    send, status=WebsocketStatus.server_error, data=str(e.data)
                 )
 
                 if e.status == HTTPStatus.INTERNAL_SERVER_ERROR:
@@ -235,7 +237,7 @@ class LatchASGIServer:
 
             try:
                 try:
-                    ctx = HTTPContext(scope, receive, send)
+                    ctx = http.Context(scope, receive, send)
                     res = await handler(ctx)
 
                     if res is not None:
