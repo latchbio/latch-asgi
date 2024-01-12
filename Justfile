@@ -8,6 +8,6 @@ build:
   poetry build
 
 publish:
-  poetry publish --build
+  poetry publish --build --username __token__ --password $(<credentials/pypi-token)
 
 

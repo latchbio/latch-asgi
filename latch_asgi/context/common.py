@@ -1,25 +1,22 @@
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, TypeAlias, TypeVar
+from typing import Generic, TypeVar
 
-from latch_o11y.o11y import (
-    AttributesDict,
-    app_tracer,
-    dict_to_attrs,
-    trace_app_function,
-)
+from latch_o11y.o11y import AttributesDict, app_tracer, trace_app_function
 
-from .asgi_iface import HTTPReceiveCallable, HTTPScope, HTTPSendCallable
-from .auth import Authorization, get_signer_sub
-from .framework import HTTPMethod, current_http_request_span, receive_class_ext
+from ..asgi_iface import WWWReceiveCallable, WWWScope, WWWSendCallable
+from ..auth import Authorization, get_signer_sub
 
-T = TypeVar("T")
+# todo(ayush): this sucks
+Scope = TypeVar("Scope", bound=WWWScope)
+Send = TypeVar("Send", bound=WWWSendCallable)
+Receive = TypeVar("Receive", bound=WWWReceiveCallable)
 
 
 @dataclass
-class Context:
-    scope: HTTPScope
-    receive: HTTPReceiveCallable
-    send: HTTPSendCallable
+class Context(Generic[Scope, Receive, Send]):
+    scope: Scope
+    receive: Receive
+    send: Send
 
     auth: Authorization = field(default_factory=Authorization, init=False)
 
@@ -32,9 +29,6 @@ class Context:
 
         if auth_header is not None:
             self.auth = get_signer_sub(auth_header)
-
-        if self.auth.oauth_sub is not None:
-            current_http_request_span().set_attribute("enduser.id", self.auth.oauth_sub)
 
     def header(self, x: str | bytes):
         if isinstance(x, str):
@@ -58,7 +52,7 @@ class Context:
         return res.decode("latin-1")
 
     def add_request_span_attrs(self, data: AttributesDict, prefix: str):
-        current_http_request_span().set_attributes(dict_to_attrs(data, prefix))
+        raise NotImplementedError()
 
     @trace_app_function
     def add_db_response(self, data: AttributesDict):
@@ -68,23 +62,3 @@ class Context:
         # )
         self.add_request_span_attrs(data, f"db.response.{self._db_response_idx}")
         self._db_response_idx += 1
-
-    @trace_app_function
-    async def receive_request_payload(self, cls: type[T]) -> T:
-        json, res = await receive_class_ext(self.receive, cls)
-
-        # todo(maximsmol): datadog has shit support for events
-        # current_http_request_span().add_event(
-        #     "request payload", dict_to_attrs(json, "data")
-        # )
-        self.add_request_span_attrs(json, "http.request_payload")
-
-        return res
-
-
-HandlerResult: TypeAlias = Any | None
-Handler: TypeAlias = Callable[
-    [Context],
-    Awaitable[HandlerResult],
-]
-Route: TypeAlias = Handler | tuple[list[HTTPMethod], Handler]

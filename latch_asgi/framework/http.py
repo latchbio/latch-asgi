@@ -5,22 +5,18 @@ import opentelemetry.context as context
 import simdjson
 from latch_data_validation.data_validation import DataValidationError, validate
 from latch_o11y.o11y import trace_function, trace_function_with_span
-from opentelemetry.trace import get_tracer
 from opentelemetry.trace.span import Span
 from orjson import dumps
 
-from .asgi_iface import (
+from ..asgi_iface import (
     HTTPReceiveCallable,
     HTTPResponseBodyEvent,
     HTTPResponseStartEvent,
     HTTPSendCallable,
 )
-
-Headers: TypeAlias = dict[str | bytes, str | bytes]
+from .common import Headers, tracer
 
 T = TypeVar("T")
-
-tracer = get_tracer(__name__)
 
 HTTPMethod: TypeAlias = (
     Literal["GET"]
@@ -69,8 +65,7 @@ class HTTPForbidden(HTTPErrorResponse):
         super().__init__(HTTPStatus.FORBIDDEN, data, headers=headers)
 
 
-class HTTPConnectionClosedError(RuntimeError):
-    ...
+class HTTPConnectionClosedError(RuntimeError): ...
 
 
 # >>> I/O
@@ -127,7 +122,7 @@ async def receive_data(receive: HTTPReceiveCallable):
 
 
 @trace_function_with_span(tracer)
-async def send_data(
+async def send_http_data(
     s: Span,
     send: HTTPSendCallable,
     status: HTTPStatus,
@@ -178,7 +173,7 @@ async def send_json(
     content_type: str = "application/json",
     headers: Headers = {},
 ):
-    return await send_data(
+    return await send_http_data(
         send, status, dumps(data), content_type=content_type, headers=headers
     )
 
@@ -193,6 +188,6 @@ async def send_auto(
     headers: Headers = {},
 ):
     if isinstance(data, str) or isinstance(data, bytes):
-        return await send_data(send, status, data, headers=headers)
+        return await send_http_data(send, status, data, headers=headers)
 
     return await send_json(send, status, data, headers=headers)
