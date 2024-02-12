@@ -52,7 +52,6 @@ from .framework.websocket import (
     accept_websocket_connection,
     close_websocket_connection,
     current_websocket_request_span,
-    send_websocket_data,
     websocket_request_span_key,
 )
 
@@ -295,7 +294,7 @@ class LatchASGIServer:
                         if x["type"] != type_str(e):
                             continue
 
-                        return validate(x, e)
+                        return untraced_validate(x, e)
 
                     raise RuntimeError(
                         f"unknown websocket event type: {repr(x['type'])}"
@@ -306,7 +305,7 @@ class LatchASGIServer:
                     await send(data)
 
                 return await self.scope_websocket(
-                    validate(scope, WebsocketScope), ws_receive, ws_send
+                    untraced_validate(scope, WebsocketScope), ws_receive, ws_send
                 )
 
             if scope["type"] == "http":

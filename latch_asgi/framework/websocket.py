@@ -2,10 +2,10 @@ from enum import Enum
 from typing import Any, TypeVar, cast
 
 import opentelemetry.context as context
-import simdjson
 from latch_data_validation.data_validation import DataValidationError, validate
 from latch_o11y.o11y import trace_function, trace_function_with_span
 from opentelemetry.trace.span import Span
+import orjson
 
 from ..asgi_iface import (
     WebsocketAcceptEvent,
@@ -29,28 +29,26 @@ def current_websocket_request_span() -> Span:
 
 
 class WebsocketStatus(int, Enum):
+    """
+    https://www.rfc-editor.org/rfc/rfc6455.html#section-7.4.1
+    """
+
     normal = 1000
     """
     1000 indicates a normal closure, meaning that the purpose for
     which the connection was established has been fulfilled.
-
-    https://www.rfc-editor.org/rfc/rfc6455.html#section-7.4.1
     """
 
     going_away = 1001
     """
     1001 indicates that an endpoint is "going away", such as a server
     going down or a browser having navigated away from a page.
-
-    https://www.rfc-editor.org/rfc/rfc6455.html#section-7.4.1
     """
 
     protocol_error = 1002
     """
     1002 indicates that an endpoint is terminating the connection due
     to a protocol error.
-
-    https://www.rfc-editor.org/rfc/rfc6455.html#section-7.4.1
     """
 
     unsupported = 1003
@@ -59,15 +57,11 @@ class WebsocketStatus(int, Enum):
     because it has received a type of data it cannot accept (e.g., an
     endpoint that understands only text data MAY send this if it
     receives a binary message).
-
-    https://www.rfc-editor.org/rfc/rfc6455.html#section-7.4.1
     """
 
     reserved = 1004
     """
     Reserved.  The specific meaning might be defined in the future.
-
-    https://www.rfc-editor.org/rfc/rfc6455.html#section-7.4.1
     """
 
     no_status = 1005
@@ -76,8 +70,6 @@ class WebsocketStatus(int, Enum):
     Close control frame by an endpoint.  It is designated for use in
     applications expecting a status code to indicate that no status
     code was actually present.
-
-    https://www.rfc-editor.org/rfc/rfc6455.html#section-7.4.1
     """
 
     abnormal = 1006
@@ -87,8 +79,6 @@ class WebsocketStatus(int, Enum):
     applications expecting a status code to indicate that the
     connection was closed abnormally, e.g., without sending or
     receiving a Close control frame.
-
-    https://www.rfc-editor.org/rfc/rfc6455.html#section-7.4.1
     """
 
     unsupported_payload = 1007
@@ -97,8 +87,6 @@ class WebsocketStatus(int, Enum):
     because it has received data within a message that was not
     consistent with the type of the message (e.g., non-UTF-8 [RFC3629]
     data within a text message).
-
-    https://www.rfc-editor.org/rfc/rfc6455.html#section-7.4.1
     """
 
     policy_violation = 1008
@@ -108,8 +96,6 @@ class WebsocketStatus(int, Enum):
     is a generic status code that can be returned when there is no
     other more suitable status code (e.g., 1003 or 1009) or if there
     is a need to hide specific details about the policy.
-
-    https://www.rfc-editor.org/rfc/rfc6455.html#section-7.4.1
     """
 
     too_large = 1009
@@ -117,8 +103,6 @@ class WebsocketStatus(int, Enum):
     1009 indicates that an endpoint is terminating the connection
     because it has received a message that is too big for it to
     process.
-
-    https://www.rfc-editor.org/rfc/rfc6455.html#section-7.4.1
     """
 
     mandatory_extension = 1010
@@ -130,8 +114,6 @@ class WebsocketStatus(int, Enum):
     are needed SHOULD appear in the /reason/ part of the Close frame.
     Note that this status code is not used by the server, because it
     can fail the WebSocket handshake instead.
-
-    https://www.rfc-editor.org/rfc/rfc6455.html#section-7.4.1
     """
 
     server_error = 1011
@@ -139,8 +121,6 @@ class WebsocketStatus(int, Enum):
     1011 indicates that a server is terminating the connection because
     it encountered an unexpected condition that prevented it from
     fulfilling the request.
-
-    https://www.rfc-editor.org/rfc/rfc6455.html#section-7.4.1
     """
 
     tls_handshake_fail = 1015
@@ -150,23 +130,15 @@ class WebsocketStatus(int, Enum):
     applications expecting a status code to indicate that the
     connection was closed due to a failure to perform a TLS handshake
     (e.g., the server certificate can't be verified).
-
-    https://www.rfc-editor.org/rfc/rfc6455.html#section-7.4.1
     """
 
 
-class WebsocketError(RuntimeError):
+class WebsocketErrorResponse(RuntimeError):
     def __init__(self, status: WebsocketStatus, data: Any, *, headers: Headers = {}):
         super().__init__()
         self.status = status
         self.data = data
         self.headers = headers
-
-
-class WebsocketErrorResponse(WebsocketError): ...
-
-
-class WebsocketConnectionClosedError(RuntimeError): ...
 
 
 class WebsocketBadMessage(WebsocketErrorResponse):
@@ -179,11 +151,13 @@ class WebsocketInternalServerError(WebsocketErrorResponse):
         super().__init__(WebsocketStatus.server_error, data, headers=headers)
 
 
+class WebsocketConnectionClosedError(RuntimeError): ...
+
+
 # >>> I/O
 
 
 async def receive_websocket_data(receive: WebsocketReceiveCallable):
-    res = b""
     with tracer.start_as_current_span("read websocket message") as s:
         msg = await receive()
 
@@ -203,19 +177,13 @@ async def receive_websocket_data(receive: WebsocketReceiveCallable):
         else:
             raise WebsocketBadMessage("empty message")
 
-        s.set_attributes({"size": len(res)})
+        s.set_attribute("size", len(res))
         return res
 
 
 @trace_function(tracer)
 async def receive_websocket_json(receive: WebsocketReceiveCallable) -> Any:
-    res = await receive_websocket_data(receive)
-
-    p = simdjson.Parser()
-    try:
-        return p.parse(res, True)
-    except ValueError as e:
-        raise WebsocketBadMessage("Failed to parse JSON") from e
+    orjson.loads(await receive_websocket_data(receive))
 
 
 @trace_function(tracer)
@@ -253,9 +221,8 @@ async def send_websocket_data(
     )
 
 
-@trace_function_with_span(tracer)
+@trace_function(tracer)
 async def accept_websocket_connection(
-    s: Span,
     send: WebsocketSendCallable,
     receive: WebsocketReceiveCallable,
     /,

@@ -2,11 +2,10 @@ from http import HTTPStatus
 from typing import Any, Literal, TypeAlias, TypeVar, cast
 
 import opentelemetry.context as context
-import simdjson
+import orjson
 from latch_data_validation.data_validation import DataValidationError, validate
 from latch_o11y.o11y import trace_function, trace_function_with_span
 from opentelemetry.trace.span import Span
-from orjson import dumps
 
 from ..asgi_iface import (
     HTTPReceiveCallable,
@@ -44,7 +43,6 @@ def current_http_request_span() -> Span:
 
 class HTTPErrorResponse(RuntimeError):
     def __init__(self, status: HTTPStatus, data: Any, *, headers: Headers = {}):
-        super().__init__()
         self.status = status
         self.data = data
         self.headers = headers
@@ -91,13 +89,7 @@ async def receive_class(receive: HTTPReceiveCallable, cls: type[T]) -> T:
 
 @trace_function(tracer)
 async def receive_json(receive: HTTPReceiveCallable) -> Any:
-    res = await receive_data(receive)
-
-    p = simdjson.Parser()
-    try:
-        return p.parse(res, True)
-    except ValueError as e:
-        raise HTTPBadRequest("Failed to parse JSON") from e
+    return orjson.loads(await receive_data(receive))
 
 
 async def receive_data(receive: HTTPReceiveCallable):
@@ -174,7 +166,7 @@ async def send_json(
     headers: Headers = {},
 ):
     return await send_http_data(
-        send, status, dumps(data), content_type=content_type, headers=headers
+        send, status, orjson.dumps(data), content_type=content_type, headers=headers
     )
 
 
