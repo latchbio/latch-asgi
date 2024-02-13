@@ -1,11 +1,12 @@
 from enum import Enum
-from typing import Any, TypeVar, cast
+from typing import Any, Self, TypeVar, cast
 
-import opentelemetry.context as context
+import orjson
 from latch_data_validation.data_validation import DataValidationError, validate
 from latch_o11y.o11y import trace_function, trace_function_with_span
+from opentelemetry import context
 from opentelemetry.trace.span import Span
-import orjson
+from opentelemetry.util.types import AttributeValue
 
 from ..asgi_iface import (
     WebsocketAcceptEvent,
@@ -18,20 +19,18 @@ from .common import Headers, tracer
 
 T = TypeVar("T")
 
-websocket_request_span_key = context.create_key("websocket_request_span")
+websocket_session_span_key = context.create_key("websocket_message_span")
 
 
-def current_websocket_request_span() -> Span:
-    return cast(Span, context.get_value(websocket_request_span_key))
+def current_websocket_session_span() -> Span:
+    return cast(Span, context.get_value(websocket_session_span_key))
 
 
 # >>> Error classes
 
 
 class WebsocketStatus(int, Enum):
-    """
-    https://www.rfc-editor.org/rfc/rfc6455.html#section-7.4.1
-    """
+    """https://www.rfc-editor.org/rfc/rfc6455.html#section-7.4.1"""
 
     normal = 1000
     """
@@ -134,108 +133,45 @@ class WebsocketStatus(int, Enum):
 
 
 class WebsocketErrorResponse(RuntimeError):
-    def __init__(self, status: WebsocketStatus, data: Any, *, headers: Headers = {}):
-        super().__init__()
+    def __init__(self: Self, status: WebsocketStatus, data: Any) -> None:
         self.status = status
         self.data = data
-        self.headers = headers
 
 
 class WebsocketBadMessage(WebsocketErrorResponse):
-    def __init__(self, data: Any, *, headers: Headers = {}):
-        super().__init__(WebsocketStatus.policy_violation, data, headers=headers)
+    def __init__(self: Self, data: Any) -> None:
+        super().__init__(WebsocketStatus.policy_violation, data)
 
 
 class WebsocketInternalServerError(WebsocketErrorResponse):
-    def __init__(self, data: Any, *, headers: Headers = {}):
-        super().__init__(WebsocketStatus.server_error, data, headers=headers)
+    def __init__(self: Self, data: Any) -> None:
+        super().__init__(WebsocketStatus.server_error, data)
 
 
-class WebsocketConnectionClosedError(RuntimeError): ...
+class WebsocketConnectionClosedError(RuntimeError):
+    def __init__(self: Self, code: WebsocketStatus) -> None:
+        self.code = code
 
 
-# >>> I/O
+# >>>
+# I/O
+# >>>
 
-
-async def receive_websocket_data(receive: WebsocketReceiveCallable):
-    with tracer.start_as_current_span("read websocket message") as s:
-        msg = await receive()
-
-        s.set_attribute("type", msg.type)
-
-        if msg.type == "websocket.connect":
-            # todo(ayush): allow upgrades here as well?
-            raise WebsocketBadMessage("connection has already been established")
-
-        if msg.type == "websocket.disconnect":
-            raise WebsocketConnectionClosedError()
-
-        if msg.bytes is not None:
-            res = msg.bytes
-        elif msg.text is not None:
-            res = msg.text.encode("utf-8")
-        else:
-            raise WebsocketBadMessage("empty message")
-
-        s.set_attribute("size", len(res))
-        return res
+# >>> Send Lifecycle
 
 
 @trace_function(tracer)
-async def receive_websocket_json(receive: WebsocketReceiveCallable) -> Any:
-    orjson.loads(await receive_websocket_data(receive))
-
-
-@trace_function(tracer)
-async def receive_websocket_class_ext(
-    receive: WebsocketReceiveCallable, cls: type[T]
-) -> tuple[Any, T]:
-    data = await receive_websocket_json(receive)
-
-    try:
-        return data, validate(data, cls)
-    except DataValidationError as e:
-        raise WebsocketBadMessage(e.json()) from None
-
-
-@trace_function(tracer)
-async def receive_websocket_class(receive: WebsocketReceiveCallable, cls: type[T]) -> T:
-    return (await receive_websocket_class_ext(receive, cls))[1]
-
-
-@trace_function_with_span(tracer)
-async def send_websocket_data(
-    s: Span,
+async def accept_connection(
     send: WebsocketSendCallable,
-    data: str | bytes,
-):
-    if isinstance(data, str):
-        data = data.encode("utf-8")
-
-    s.set_attribute("body.size", len(data))
-
-    await send(WebsocketSendEvent(type="websocket.send", bytes=data, text=None))
-
-    current_websocket_request_span().set_attribute(
-        "websocket.sent_message_content_length", len(data)
-    )
-
-
-@trace_function(tracer)
-async def accept_websocket_connection(
-    send: WebsocketSendCallable,
-    receive: WebsocketReceiveCallable,
     /,
     *,
     subprotocol: str | None = None,
-    headers: Headers = {},
-):
-    msg = await receive()
-    if msg.type != "websocket.connect":
-        raise WebsocketBadMessage("cannot accept connection without connection request")
+    headers: Headers | None = None,
+) -> None:
+    if headers is None:
+        headers = {}
 
     headers_to_send: list[tuple[bytes, bytes]] = []
-
     for k, v in headers.items():
         if isinstance(k, str):
             k = k.encode("latin-1")
@@ -251,16 +187,85 @@ async def accept_websocket_connection(
 
 
 @trace_function_with_span(tracer)
-async def close_websocket_connection(
-    s: Span,
-    send: WebsocketSendCallable,
-    /,
-    *,
-    status: WebsocketStatus,
-    data: str,
-):
-    s.set_attribute("reason", data)
+async def close_connection(
+    s: Span, send: WebsocketSendCallable, /, *, status: WebsocketStatus, data: str
+) -> None:
+    s.set_attributes({"status": status.name, "reason": data})
 
-    await send(WebsocketCloseEvent("websocket.close", status.value, data))
+    await send(
+        WebsocketCloseEvent(type="websocket.close", code=status.value, reason=data)
+    )
 
-    current_websocket_request_span().set_attribute("websocket.http.close_reason", data)
+    current_websocket_session_span().set_attribute("websocket.close_reason", data)
+
+
+# >>> Receive
+
+# todo(maximsmol): add max message length limit by default
+
+
+@trace_function(tracer)
+async def receive_data(receive: WebsocketReceiveCallable) -> bytes | str:
+    msg = await receive()
+
+    if msg["type"] == "websocket.connect":
+        # todo(ayush): allow upgrades here as well?
+        raise ValueError("ASGI protocol violation: duplicate websocket.connect event")
+
+    if msg["type"] == "websocket.disconnect":
+        raise WebsocketConnectionClosedError(WebsocketStatus(msg["code"]))
+
+    if msg["bytes"] is not None:
+        res = msg["bytes"]
+    elif msg["text"] is not None:
+        res = msg["text"]
+    else:
+        raise WebsocketBadMessage("empty message")
+
+    return res
+
+
+@trace_function(tracer)
+async def receive_json(receive: WebsocketReceiveCallable) -> Any:
+    return orjson.loads(await receive_data(receive))
+
+
+@trace_function(tracer)
+async def receive_class_ext(
+    receive: WebsocketReceiveCallable, cls: type[T]
+) -> tuple[Any, T]:
+    data = await receive_json(receive)
+
+    try:
+        return data, validate(data, cls)
+    except DataValidationError as e:
+        raise WebsocketBadMessage(e.json()) from None
+
+
+@trace_function(tracer)
+async def receive_websocket_class(receive: WebsocketReceiveCallable, cls: type[T]) -> T:
+    return (await receive_class_ext(receive, cls))[1]
+
+
+# >>> Send
+
+
+@trace_function(tracer)
+async def send_data(send: WebsocketSendCallable, data: str | bytes, /) -> None:
+    if isinstance(data, bytes):
+        await send(WebsocketSendEvent(type="websocket.send", bytes=data, text=None))
+    else:
+        await send(WebsocketSendEvent(type="websocket.send", bytes=None, text=data))
+
+
+@trace_function(tracer)
+async def send_json(send: WebsocketSendCallable, data: Any, /) -> None:
+    return await send_data(send, orjson.dumps(data))
+
+
+@trace_function(tracer)
+async def send_websocket_auto(send: WebsocketSendCallable, data: Any, /) -> None:
+    if isinstance(data, str | bytes):
+        return await send_data(send, data)
+
+    return await send_json(send, data)

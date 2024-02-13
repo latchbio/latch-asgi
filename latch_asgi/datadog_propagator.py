@@ -1,3 +1,5 @@
+from typing import Self
+
 from opentelemetry import trace
 from opentelemetry.context.context import Context
 from opentelemetry.propagators import textmap
@@ -6,7 +8,7 @@ from opentelemetry.propagators import textmap
 class DDTraceContextTextMapPropagator(textmap.TextMapPropagator):
     # https://github.com/open-telemetry/opentelemetry-python-contrib/blob/934af7ea4f9b1e0294ced6a014d6eefdda156b2b/exporter/opentelemetry-exporter-datadog/src/opentelemetry/exporter/datadog/propagator.py
     def extract(
-        self,
+        self: Self,
         carrier: textmap.CarrierT,
         context: Context | None = None,
         getter: textmap.Getter[textmap.CarrierT] = textmap.default_getter,
@@ -28,12 +30,16 @@ class DDTraceContextTextMapPropagator(textmap.TextMapPropagator):
         sampling_priority = getter.get(carrier, "x-datadog-sampling-priority")
 
         trace_flags = trace.TraceFlags()
-        if sampling_priority is not None and len(sampling_priority) > 0:
-            if int(sampling_priority[0]) in (
+        if (
+            sampling_priority is not None
+            and len(sampling_priority) > 0
+            and int(sampling_priority[0])
+            in (
                 1,  # auto keep
                 2,  # user keep
-            ):
-                trace_flags = trace.TraceFlags(trace.TraceFlags.SAMPLED)
+            )
+        ):
+            trace_flags = trace.TraceFlags(trace.TraceFlags.SAMPLED)
 
         dd_origin = getter.get(carrier, "x-datadog-origin")
 
@@ -51,7 +57,7 @@ class DDTraceContextTextMapPropagator(textmap.TextMapPropagator):
         return trace.set_span_in_context(trace.NonRecordingSpan(span_context), context)
 
     def inject(
-        self,
+        self: Self,
         carrier: textmap.CarrierT,
         context: Context | None = None,
         setter: textmap.Setter[textmap.CarrierT] = textmap.default_setter,
@@ -69,11 +75,7 @@ class DDTraceContextTextMapPropagator(textmap.TextMapPropagator):
             "x-datadog-trace-id",
             str(span_context.trace_id & 0xFFFF_FFFF_FFFF_FFFF),
         )
-        setter.set(
-            carrier,
-            "x-datadog-parent-id",
-            str(span_context.span_id),
-        )
+        setter.set(carrier, "x-datadog-parent-id", str(span_context.span_id))
         setter.set(
             carrier,
             "x-datadog-sampling-priority",
@@ -87,7 +89,7 @@ class DDTraceContextTextMapPropagator(textmap.TextMapPropagator):
             )
 
     @property
-    def fields(self) -> set[str]:
+    def fields(self: Self) -> set[str]:
         return {
             "x-datadog-trace-id",
             "x-datadog-parent-id",

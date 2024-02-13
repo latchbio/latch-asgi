@@ -3,3 +3,4 @@ dist/
 credentials/
 .pdm-build
 .DS_Store
+/twine_creds.sh
