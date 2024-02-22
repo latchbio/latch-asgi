@@ -1,7 +1,7 @@
 
 [project]
 name = "latch-asgi"
-version = "0.3.0"
+version = "1.0.0"
 description = "ASGI python server"
 authors = [{ name = "Max Smolin", email = "max@latch.bio" }]
 dependencies = [
@@ -13,7 +13,7 @@ dependencies = [
     "orjson<4.0.0,>=3.8.5",
     "opentelemetry-sdk<2.0.0,>=1.15.0",
     "opentelemetry-api<2.0.0,>=1.15.0",
-    "opentelemetry-instrumentation-asgi<1.0,>=0.36b0",
+    # "opentelemetry-instrumentation-asgi<1.0,>=0.36b0",
 ]
 requires-python = ">=3.11,<4.0"
 readme = "README.md"
@@ -36,13 +36,70 @@ build-backend = "pdm.backend"
 preview = true
 target-version = ["py311"]
 
-[tool.isort]
-profile = "black"
-
 [tool.ruff]
 pydocstyle = { convention = "google" }
-extend-select = ["W", "D", "U", "N", "C", "B", "A", "T", "Q", "M"]
-extend-ignore = [
+extend-select = [
+    "F",
+    "E",
+    "W",
+    # "C90",
+    "I",
+    "N",
+    "D",
+    "UP",
+    "YTT",
+    "ANN",
+    "ASYNC",
+    "TRIO",
+    "S",
+    # "BLE", # `raise x from y` does not work
+    "FBT",
+    "B",
+    "A",
+    # "COM",
+    # "CPY",
+    "C4",
+    "DTZ",
+    "T10",
+    "DJ",
+    # "EM",
+    "EXE",
+    "FA",
+    "ISC",
+    "ICN",
+    "G",
+    "INP",
+    "PIE",
+    "T20",
+    "PYI",
+    "PT",
+    "Q",
+    "RSE",
+    "RET",
+    "SLF",
+    "SLOT",
+    "SIM",
+    "TID",
+    "TCH",
+    "INT",
+    "ARG",
+    "PTH",
+    "TD",
+    # "FIX",
+    # "ERA",
+    "PD",
+    "PGH",
+    "PL",
+    "TRY",
+    "FLY",
+    "NPY",
+    "AIR",
+    "PERF",
+    "FURB",
+    "LOG",
+    "RUF",
+]
+ignore = [
     "A002",
     "A003",
 
@@ -64,7 +121,31 @@ extend-ignore = [
     "D104",
     "D105",
     "D107",
+
+    "TRY003",
+    "TRY301",
+
+    "PLW2901",
+
+    "PLR0911",
+    "PLR0912",
+    "PLR0913",
+    "PLR0914",
+    "PLR0915",
+    "PLR0916",
+    "PLR0917",
+
+    "TD001",
+    "TD003",
+    "TD006",
+
+    "TID252",
+
+    "TCH002", # todo(maximsmol): enable
 ]
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true
 
 [tool.pyright]
 reportUnknownArgumentType = "none"

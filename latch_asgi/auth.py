@@ -3,7 +3,7 @@
 import re
 from dataclasses import dataclass
 from http import HTTPStatus
-from typing import Literal
+from typing import Literal, Self
 
 import jwt
 from jwt import PyJWKClient
@@ -37,14 +37,10 @@ class _HTTPUnauthorized(HTTPErrorResponse):
     """WARNING: HTTPForbidden is the correct error to use in virtually all cases"""
 
     def __init__(
-        self,
+        self: Self,
         error_description: str,
-        error: (
-            Literal["invalid_request"]
-            | Literal["invalid_token"]
-            | Literal["insufficient_scope"]
-        ),
-    ):
+        error: (Literal["invalid_request", "invalid_token", "insufficient_scope"]),
+    ) -> None:
         escaped_description = error_description.replace('"', '\\"')
         super().__init__(
             HTTPStatus.UNAUTHORIZED,
@@ -63,7 +59,7 @@ class Authorization:
     execution_token: str | None = None
     sdk_token: str | None = None
 
-    def unauthorized_if_none(self):
+    def unauthorized_if_none(self: Self) -> None:
         if self.oauth_sub is not None:
             return
         if self.execution_token is not None:
@@ -71,10 +67,7 @@ class Authorization:
         if self.sdk_token is not None:
             return
 
-        raise _HTTPUnauthorized(
-            "Authenticaton required",
-            error="invalid_request",
-        )
+        raise _HTTPUnauthorized("Authenticaton required", error="invalid_request")
 
 
 @trace_app_function
@@ -121,8 +114,7 @@ def get_signer_sub(auth_header: str) -> Authorization:
             jwt_key = jwk_client.get_signing_key_from_jwt(oauth_token).key
         except jwt.exceptions.InvalidTokenError as e:
             raise _HTTPUnauthorized(
-                error_description="JWT decoding failed",
-                error="invalid_token",
+                error_description="JWT decoding failed", error="invalid_token"
             ) from e
         except jwt.exceptions.PyJWKClientError:
             # fixme(maximsmol): gut this abomination
