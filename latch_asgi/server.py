@@ -48,6 +48,7 @@ from .framework.http import (
     send_http_data,
 )
 from .framework.websocket import (
+    WebsocketConnectionClosedError,
     WebsocketErrorResponse,
     WebsocketInternalServerError,
     WebsocketStatus,
@@ -232,6 +233,8 @@ class LatchASGIServer:
                 data = await handler(ctx)
             except WebsocketErrorResponse:
                 raise
+            except WebsocketConnectionClosedError as e:
+                s.set_attribute("websocket.close.code", e.code.name)
             except Exception as e:
                 # todo(maximsmol): better error message
                 raise WebsocketInternalServerError("Internal Error") from e
