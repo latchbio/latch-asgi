@@ -3,16 +3,16 @@ from dataclasses import dataclass
 from typing import Any, Self, TypeAlias, TypeVar
 
 from hypercorn.typing import WebsocketScope
-from latch_o11y.o11y import AttributesDict, dict_to_attrs, trace_app_function
+from latch_o11y.o11y import dict_to_attrs, trace_app_function
 from opentelemetry.trace import get_current_span
 
 from ..asgi_iface import WebsocketReceiveCallable, WebsocketSendCallable
 from ..framework.common import Headers
 from ..framework.websocket import (
     accept_connection,
-    current_websocket_session_span,
     receive_class_ext,
     send_websocket_auto,
+    websocket_session_span_key,
 )
 from . import common
 
@@ -23,8 +23,7 @@ T = TypeVar("T")
 class Context(
     common.Context[WebsocketScope, WebsocketReceiveCallable, WebsocketSendCallable]
 ):
-    def add_session_span_attrs(self: Self, data: AttributesDict, prefix: str) -> None:
-        current_websocket_session_span().set_attributes(dict_to_attrs(data, prefix))
+    _request_span_key = websocket_session_span_key
 
     @trace_app_function
     async def accept_connection(

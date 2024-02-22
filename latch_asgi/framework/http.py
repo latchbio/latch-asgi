@@ -3,7 +3,7 @@ from typing import Any, Literal, Self, TypeAlias, TypeVar, cast
 
 import orjson
 from latch_data_validation.data_validation import DataValidationError, validate
-from latch_o11y.o11y import trace_function, trace_function_with_span
+from latch_o11y.o11y import trace_function
 from opentelemetry import context
 from opentelemetry.trace.span import Span
 

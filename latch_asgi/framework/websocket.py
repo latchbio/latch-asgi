@@ -6,7 +6,6 @@ from latch_data_validation.data_validation import DataValidationError, validate
 from latch_o11y.o11y import trace_function, trace_function_with_span
 from opentelemetry import context
 from opentelemetry.trace.span import Span
-from opentelemetry.util.types import AttributeValue
 
 from ..asgi_iface import (
     WebsocketAcceptEvent,
@@ -188,15 +187,15 @@ async def accept_connection(
 
 @trace_function_with_span(tracer)
 async def close_connection(
-    s: Span, send: WebsocketSendCallable, /, *, status: WebsocketStatus, data: str
+    s: Span, send: WebsocketSendCallable, /, *, status: WebsocketStatus, reason: str
 ) -> None:
-    s.set_attributes({"status": status.name, "reason": data})
+    s.set_attributes({"status": status.name, "reason": reason})
 
     await send(
-        WebsocketCloseEvent(type="websocket.close", code=status.value, reason=data)
+        WebsocketCloseEvent(type="websocket.close", code=status.value, reason=reason)
     )
 
-    current_websocket_session_span().set_attribute("websocket.close_reason", data)
+    current_websocket_session_span().set_attribute("websocket.close_reason", reason)
 
 
 # >>> Receive

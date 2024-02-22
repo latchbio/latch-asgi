@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Generic, Self, TypeVar
+from typing import ClassVar, Generic, Self, TypeVar, cast
 
 from hypercorn.typing import WWWScope
 from latch_o11y.o11y import (
@@ -8,12 +8,11 @@ from latch_o11y.o11y import (
     dict_to_attrs,
     trace_app_function,
 )
-from opentelemetry.util.types import AttributeValue
+from opentelemetry import context
+from opentelemetry.trace.span import Span
 
 from ..asgi_iface import WWWReceiveCallable, WWWSendCallable
 from ..auth import Authorization, get_signer_sub
-from ..framework.common import otel_header_whitelist
-from ..framework.http import current_http_request_span
 
 Scope = TypeVar("Scope", bound=WWWScope)
 SendCallable = TypeVar("SendCallable", bound=WWWSendCallable)
@@ -31,6 +30,8 @@ class Context(Generic[Scope, ReceiveCallable, SendCallable]):
     _header_cache: dict[bytes, bytes] = field(default_factory=dict, init=False)
     _db_response_idx: int = field(default=0, init=False)
 
+    _request_span_key: ClassVar[str]
+
     def __post_init__(self: Self) -> None:
         with app_tracer.start_as_current_span("find Authentication header"):
             auth_header = self.header_str("authorization")
@@ -39,7 +40,7 @@ class Context(Generic[Scope, ReceiveCallable, SendCallable]):
             self.auth = get_signer_sub(auth_header)
 
         if self.auth.oauth_sub is not None:
-            current_http_request_span().set_attribute("enduser.id", self.auth.oauth_sub)
+            self.current_request_span().set_attribute("enduser.id", self.auth.oauth_sub)
 
     def header(self: Self, x: str | bytes) -> bytes | None:
         if isinstance(x, str):
@@ -62,8 +63,11 @@ class Context(Generic[Scope, ReceiveCallable, SendCallable]):
 
         return res.decode("latin-1")
 
+    def current_request_span(self: Self) -> Span:
+        return cast(Span, context.get_value(self._request_span_key))
+
     def add_request_span_attrs(self: Self, data: AttributesDict, prefix: str) -> None:
-        current_http_request_span().set_attributes(dict_to_attrs(data, prefix))
+        self.current_request_span().set_attributes(dict_to_attrs(data, prefix))
 
     @trace_app_function
     def add_db_response(self: Self, data: AttributesDict) -> None:

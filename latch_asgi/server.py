@@ -215,12 +215,13 @@ class LatchASGIServer:
             # todo(maximsmol): better error message
             await log.info("Not found")
             await close_connection(
-                send, status=WebsocketStatus.policy_violation, data="Not found"
+                send, status=WebsocketStatus.policy_violation, reason="Not found"
             )
             return
 
         s.set_attribute("http.route", scope["path"])
 
+        close_reason: str | None = None
         try:
             try:
                 msg = await receive()
@@ -230,7 +231,7 @@ class LatchASGIServer:
                     )
 
                 ctx = websocket.Context(scope, receive, send)
-                data = await handler(ctx)
+                close_reason = await handler(ctx)
             except WebsocketErrorResponse:
                 raise
             except WebsocketConnectionClosedError as e:
@@ -240,16 +241,20 @@ class LatchASGIServer:
                 raise WebsocketInternalServerError("Internal Error") from e
         except WebsocketErrorResponse as e:
             await close_connection(
-                send, status=e.status, data=orjson.dumps({"error": e.data}).decode()
+                send, status=e.status, reason=orjson.dumps({"error": e.data}).decode()
             )
 
             if e.status != WebsocketStatus.server_error:
                 return
 
-            # await log.exception() # fixme(maximsmol)
             raise
         else:
-            await close_connection(send, status=WebsocketStatus.normal, data=data)
+            if close_reason is None:
+                close_reason = "Session complete"
+
+            await close_connection(
+                send, status=WebsocketStatus.normal, reason=close_reason
+            )
 
     async def scope_http(
         self: Self,
@@ -289,12 +294,6 @@ class LatchASGIServer:
             )
             return
 
-        if handler is None:
-            # todo(maximsmol): better error message
-            await log.info("Not found")
-            await send_http_data(send, HTTPStatus.NOT_FOUND, "Not found")
-            return
-
         try:
             try:
                 ctx = http.Context(scope, receive, send)
@@ -314,7 +313,6 @@ class LatchASGIServer:
             if e.status != HTTPStatus.INTERNAL_SERVER_ERROR:
                 return
 
-            # await log.exception() # fixme(maximsmol)
             raise
 
     async def raw_app(
