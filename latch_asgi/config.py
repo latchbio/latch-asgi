@@ -7,6 +7,7 @@ from latch_config.config import read_config
 class AuthConfig:
     audience: str
     self_signed_jwk: str
+    cross_server_token: str = ""
     allow_spoofing: bool = False
 
 
