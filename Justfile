@@ -5,9 +5,9 @@ local_install:
   python -m pip install -e .
 
 build:
-  poetry build
+  pdm build
 
 publish:
-  poetry publish --build --username __token__ --password $(<credentials/pypi-token)
+  pdm publish --username __token__ --password $(<credentials/pypi-token)
 
 
