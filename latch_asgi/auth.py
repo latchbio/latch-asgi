@@ -26,7 +26,7 @@ authentication_header_regex = re.compile(
     ^(
         Bearer \s+ (?P<oauth_token>.*) |
         Latch-Execution-Token \s+ (?P<execution_token>.*) |
-        Latch-SDK-Token \s+ (?P<sdk_token>.*)
+        Latch-SDK-Token \s+ (?P<sdk_token>.*) |
         Latch-X-Server-Token \s+ (?P<server_token>.*)
     )$
     """,
