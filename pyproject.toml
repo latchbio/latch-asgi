@@ -1,7 +1,7 @@
 
 [project]
 name = "latch-asgi"
-version = "1.0.3"
+version = "1.0.4"
 description = "ASGI python server"
 authors = [{ name = "Max Smolin", email = "max@latch.bio" }]
 dependencies = [
