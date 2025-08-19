@@ -222,13 +222,6 @@ class LatchASGIServer:
         s.set_attribute("http.route", scope["path"])
 
         close_reason: str | None = None
-        close_already_sent: bool = False
-
-        async def send_tracking(e):
-            nonlocal close_already_sent
-            if isinstance(e, dict) and e.get("type") == "websocket.close":
-                close_already_sent = True
-            await send(e)
         try:
             try:
                 msg = await receive()
@@ -237,7 +230,7 @@ class LatchASGIServer:
                         "ASGI protocol violation: missing websocket.connect event"
                     )
 
-                ctx = websocket.Context(scope, receive, send_tracking)
+                ctx = websocket.Context(scope, receive, send)
                 close_reason = await handler(ctx)
             except WebsocketErrorResponse:
                 raise
@@ -248,7 +241,7 @@ class LatchASGIServer:
                 raise WebsocketInternalServerError("Internal Error") from e
         except WebsocketErrorResponse as e:
             await close_connection(
-                send_tracking, status=e.status, reason=orjson.dumps({"error": e.data}).decode()
+                send, status=e.status, reason=orjson.dumps({"error": e.data}).decode()
             )
 
             if e.status != WebsocketStatus.server_error:
@@ -256,13 +249,12 @@ class LatchASGIServer:
 
             raise
         else:
-            if not close_already_sent:
-                if close_reason is None:
-                    close_reason = "Session complete"
+            if close_reason is None:
+                close_reason = "Session complete"
 
-                await close_connection(
-                    send_tracking, status=WebsocketStatus.normal, reason=close_reason
-                )
+            await close_connection(
+                send, status=WebsocketStatus.normal, reason=close_reason
+            )
 
     async def scope_http(
         self: Self,
