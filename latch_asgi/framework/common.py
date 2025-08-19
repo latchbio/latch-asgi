@@ -22,6 +22,7 @@ otel_header_whitelist = {
     "sec-gpc",
     "te",
     "upgrade-insecure-requests",
+    "sec-websocket-extensions",
     "device-memory",
     "downlink",
     "dpr",
