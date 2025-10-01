@@ -29,6 +29,7 @@ authentication_header_regex = re.compile(
         Latch-SDK-Token \s+ (?P<sdk_token>.*) |
         Latch-X-Server-Token \s+ (?P<server_token>.*) |
         Latch-Session-Token \s+ (?P<session_token>.*)
+        Forch-Auth-Token \s+ (?P<forch_token>.*)
     )$
     """,
     re.IGNORECASE | re.VERBOSE,
@@ -62,6 +63,7 @@ class Authorization:
     session_token: str | None = None
     sdk_token: str | None = None
     cross_server_token: str | None = None
+    forch_token: str | None = None
 
     def unauthorized_if_none(self: Self) -> None:
         if self.oauth_sub is not None:
@@ -72,12 +74,14 @@ class Authorization:
             return
         if self.cross_server_token is not None:
             return
+        if self.forch_token is not None:
+            return
 
         raise _HTTPUnauthorized("Authenticaton required", error="invalid_request")
 
 
 @trace_app_function
-def get_signer_sub(auth_header: str) -> Authorization:
+def get_signer_sub(auth_header: str, verify: bool = True) -> Authorization:
     if auth_header is None:
         return Authorization()
 
@@ -123,8 +127,11 @@ def get_signer_sub(auth_header: str) -> Authorization:
                 )
             return Authorization(cross_server_token=cross_server_token)
 
-        oauth_token = auth_match.group("oauth_token")
+        forch_token = auth_match.group("forch_token")
+        if forch_token is not None:
+            return Authorization(forch_token=forch_token)
 
+        oauth_token = auth_match.group("oauth_token")
         if oauth_token is None:
             raise _HTTPUnauthorized(
                 error_description="Could not parse the OAuth token",
