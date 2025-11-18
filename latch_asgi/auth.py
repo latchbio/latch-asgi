@@ -148,17 +148,16 @@ def get_signer_sub(auth_header: str) -> Authorization:
 
     with app_tracer.start_as_current_span("decode jwt"):
         audience = config.audience if jwt_key != config.self_signed_jwk else None
+        algorithms = ["HS256"] if jwt_key == config.self_signed_jwk else ["RS256", "HS256"]
         try:
             jwt_data: dict[str, str] = jwt.decode(
                 oauth_token,
                 key=jwt_key,
-                algorithms=["RS256", "HS256"],
-                # fixme(maximsmol): gut this abomination
+                algorithms=algorithms,
                 audience=audience,
                 options={"verify_aud": audience is not None},
             )
         except jwt.exceptions.InvalidTokenError as e:
-            # todo(maximsmol): filter out scope failures and include the correct error code
             raise _HTTPUnauthorized(
                 error_description="The JWT failed signature verification",
                 error="invalid_token",
