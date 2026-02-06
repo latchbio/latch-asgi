@@ -16,7 +16,7 @@ from hypercorn.typing import (
     Scope,
     WebsocketScope,
 )
-from latch_o11y.o11y import log, trace_function_with_span
+from latch_o11y.o11y import trace_function_with_span
 from opentelemetry import context
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.trace import Span, SpanKind, get_tracer
@@ -138,9 +138,7 @@ class LatchASGIServer:
         asgi_v = scope["asgi"].get("version", "2.0")
         asgi_spec_v = scope["asgi"].get("spec_version", "1.0")
 
-        await log.info(
-            f"Waiting for lifespan events (ASGI v{asgi_v} @ spec v{asgi_spec_v})"
-        )
+        print(f"Waiting for lifespan events (ASGI v{asgi_v} @ spec v{asgi_spec_v})")
 
         while True:
             message = await receive()
@@ -155,7 +153,7 @@ class LatchASGIServer:
                     },
                 ):
                     try:
-                        await log.info("Executing startup tasks")
+                        print("Executing startup tasks")
 
                         set_global_textmap(DDTraceContextTextMapPropagator())
 
@@ -211,9 +209,10 @@ class LatchASGIServer:
         with tracer.start_as_current_span("find route handler"):
             handler = self.websocket_routes.get(scope["path"])
 
+        s.set_attributes({"handler": str(handler), "scope": str(scope)})
+
         if handler is None:
-            # todo(maximsmol): better error message
-            await log.info("Not found")
+            print(f"Handler not found for path {scope['path']}")
             await close_connection(
                 send, status=WebsocketStatus.policy_violation, reason="Not found"
             )
@@ -356,7 +355,7 @@ class LatchASGIServer:
                     ctx_reset_token = context.attach(new_ctx)
 
                     try:
-                        await log.info(span_name)
+                        print(span_name)
 
                         attrs = get_common_attrs(scope)
                         for i, x in enumerate(scope["subprotocols"]):
@@ -404,9 +403,9 @@ class LatchASGIServer:
                                     if v not in otel_header_whitelist:
                                         v = b""
 
-                                    attrs[
-                                        f"data.header.{i}.{k.decode('latin-1')}"
-                                    ] = v.decode("latin-1")
+                                    attrs[f"data.header.{i}.{k.decode('latin-1')}"] = (
+                                        v.decode("latin-1")
+                                    )
 
                             if e["type"] == "websocket.close":
                                 s.set_attributes(
@@ -434,14 +433,14 @@ class LatchASGIServer:
                     finally:
                         context.detach(ctx_reset_token)
 
-            if scope["type"] == "http":
+            elif scope["type"] == "http":
                 span_name = f"{scope['method']} {scope['path']}"
                 with tracer.start_as_current_span(span_name, kind=SpanKind.SERVER) as s:
                     new_ctx = context.set_value(http_request_span_key, s)
                     ctx_reset_token = context.attach(new_ctx)
 
                     try:
-                        await log.info(span_name)
+                        print(span_name)
 
                         attrs = get_common_attrs(scope)
                         attrs["http.request.method"] = scope["method"]
@@ -492,5 +491,5 @@ class LatchASGIServer:
 
             raise RuntimeError(f"unsupported protocol: {scope['type']!r}")
         except Exception:
-            await log.exception("Fallback exception handler:")
+            print("Fallback exception handler:")
             raise
