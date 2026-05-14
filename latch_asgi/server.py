@@ -40,6 +40,7 @@ from .context import http, websocket
 from .datadog_propagator import DDTraceContextTextMapPropagator
 from .framework.common import otel_header_whitelist
 from .framework.http import (
+    HTTPConnectionClosedError,
     HTTPErrorResponse,
     HTTPInternalServerError,
     current_http_request_span,
@@ -303,6 +304,9 @@ class LatchASGIServer:
                         await send_auto(send, HTTPStatus.OK, res)
             except HTTPErrorResponse:
                 raise
+            except HTTPConnectionClosedError as e:
+                s.record_exception(e)
+                return
             except Exception as e:
                 # todo(maximsmol): better error message
                 raise HTTPInternalServerError("Internal error") from e
