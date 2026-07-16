@@ -132,6 +132,7 @@ def get_signer_sub(auth_header: str) -> Authorization:
             )
 
     with app_tracer.start_as_current_span("fetch jwk"):
+        is_self_signed = False
         try:
             jwt_key = jwk_client.get_signing_key_from_jwt(oauth_token).key
         except jwt.exceptions.InvalidTokenError as e:
@@ -141,18 +142,15 @@ def get_signer_sub(auth_header: str) -> Authorization:
         except jwt.exceptions.PyJWKClientError:
             # fixme(maximsmol): gut this abomination
             jwt_key = config.self_signed_jwk
-            # raise _HTTPUnauthorized(
-            #     error_description="No matching JWK found",
-            #     error="invalid_token",
-            # ) from e
+            is_self_signed = True
 
     with app_tracer.start_as_current_span("decode jwt"):
-        audience = config.audience if jwt_key != config.self_signed_jwk else None
+        audience = config.audience if not is_self_signed else None
         try:
             jwt_data: dict[str, str] = jwt.decode(
                 oauth_token,
                 key=jwt_key,
-                algorithms=["RS256", "HS256"],
+                algorithms=["HS256"] if is_self_signed else ["RS256"],
                 # fixme(maximsmol): gut this abomination
                 audience=audience,
                 options={"verify_aud": audience is not None},
@@ -163,5 +161,15 @@ def get_signer_sub(auth_header: str) -> Authorization:
                 error_description="The JWT failed signature verification",
                 error="invalid_token",
             ) from e
+
+        # self-signed tokens may only ever authenticate the low-privilege "shared"
+        # pseudo-identity (see nucleus auth_blueprint.get_shared_credentials).
+        if is_self_signed and jwt_data.get("sub") != "shared":
+            raise _HTTPUnauthorized(
+                error_description=(
+                    "Self-signed tokens may only authenticate the shared identity"
+                ),
+                error="invalid_token",
+            )
 
     return Authorization(oauth_sub=jwt_data["sub"])
